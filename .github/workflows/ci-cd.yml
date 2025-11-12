@@ -71,14 +71,19 @@ jobs:
       
       # 9. Deploy to Azure Container App
       - name: Deploy to Azure Container Apps
-        if: ${{ env.AZURE_ENABLED == 'true' }}
+        if: ${{ secrets.AZURE_ENABLED == 'true' }}
         run: |
+          az login --service-principal \
+            -u $(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId) \
+            -p $(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret) \
+            --tenant $(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .tenantId)
+
           az containerapp update \
             --name go-cloud-demo \
             --resource-group Stuff \
             --image ${{ secrets.AZURE_REGISTRY_NAME }}.azurecr.io/go-cloud-demo:latest \
             --environment go-cloud-demo-env \
-     
+            --set-env-vars "CLOUD_PROVIDER=AZURE"
 
 
       # 10. Mirror Image to AWS ECR (optional)
