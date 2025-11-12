@@ -82,10 +82,6 @@ jobs:
             --name go-cloud-demo \
             --resource-group Stuff \
             --image $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest \
-            --environment go-cloud-demo-env \
-            --set-env-vars "CLOUD_PROVIDER=AZURE"
-
-
 
       # 10. Mirror Image to AWS ECR (optional)
       - name: Mirror to AWS ECR
