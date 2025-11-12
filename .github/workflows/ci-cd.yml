@@ -56,56 +56,61 @@ jobs:
             --project ${{ env.PROJECT_ID }} \
             --allow-unauthenticated \
 
-      # 8. Mirror Image to Azure ACR (optional)
+      # 8. Mirror Image to Azure ACR
       - name: Mirror to Azure ACR
         if: ${{ env.AZURE_ENABLED == 'true' }}
+        env:
+          AZURE_ENABLED: ${{ secrets.AZURE_ENABLED }}
+          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+          AZURE_REGISTRY_NAME: ${{ secrets.AZURE_REGISTRY_NAME }}
         run: |
           echo "Azure mirroring enabled: $AZURE_ENABLED"
+
+          # Login to Azure
           az login --service-principal \
             -u $(echo $AZURE_CREDENTIALS | jq -r .clientId) \
             -p $(echo $AZURE_CREDENTIALS | jq -r .clientSecret) \
             --tenant $(echo $AZURE_CREDENTIALS | jq -r .tenantId)
+
+          # Login to ACR
+          echo "Logging into Azure Container Registry..."
           az acr login --name $AZURE_REGISTRY_NAME
+
+          # Tag and push the Docker image to ACR
+          echo "Tagging and pushing Docker image to Azure Container Registry..."
           docker tag $IMAGE:latest $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest
           docker push $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest
 
-      # 9. Deploy to Azure Container App
-      - name: Deploy to Azure Container Apps
+
+      # 9. Deploy to Azure Container App (update only)
+      - name: Deploy to Azure Container App
         if: ${{ env.AZURE_ENABLED == 'true' }}
+        env:
+          AZURE_ENABLED: ${{ secrets.AZURE_ENABLED }}
+          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+          AZURE_REGISTRY_NAME: ${{ secrets.AZURE_REGISTRY_NAME }}
         run: |
+          echo "Starting deployment to Azure Container App..."
+
+          # Login again for safety (new session context)
           az login --service-principal \
             -u $(echo $AZURE_CREDENTIALS | jq -r .clientId) \
             -p $(echo $AZURE_CREDENTIALS | jq -r .clientSecret) \
             --tenant $(echo $AZURE_CREDENTIALS | jq -r .tenantId)
 
-          echo "Deploying container to Azure Container App..."
-
-          # Ensure the environment exists
-          echo "Checking environment..."
-          if ! az containerapp env show --name go-cloud-demo-env --resource-group Stuff > /dev/null 2>&1; then
-            echo "Environment does not exist — please create it manually once."
-          fi
-
-          # Check if the Container App exists
+          # Update the existing Azure Container App only
           if az containerapp show --name go-cloud-demo --resource-group Stuff > /dev/null 2>&1; then
-            echo "Updating existing container app..."
+            echo "Updating existing Azure Container App..."
             az containerapp update \
               --name go-cloud-demo \
               --resource-group Stuff \
               --image $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest \
               --env-vars "CLOUD_PROVIDER=AZURE"
           else
-            echo "Creating new container app..."
-            az containerapp create \
-              --name go-cloud-demo \
-              --resource-group Stuff \
-              --environment go-cloud-demo-env \
-              --image $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest \
-              --target-port 8080 \
-              --ingress external \
-              --registry-server $AZURE_REGISTRY_NAME.azurecr.io \
-              --env-vars "CLOUD_PROVIDER=AZURE"
+            echo "Azure Container App does not exist — skipping creation as per configuration."
           fi
+
+
 
       # 10. Mirror Image to AWS ECR (optional)
       - name: Mirror to AWS ECR
