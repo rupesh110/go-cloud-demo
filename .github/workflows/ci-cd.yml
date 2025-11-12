@@ -52,7 +52,6 @@ jobs:
             --platform managed \
             --project ${{ env.PROJECT_ID }} \
             --allow-unauthenticated \
-            --set-env-vars "CLOUD_PROVIDER=GCP"
 
       # 8. Mirror Image to Azure ACR (optional)
       - name: Mirror to Azure ACR
@@ -69,8 +68,20 @@ jobs:
           az acr login --name $AZURE_REGISTRY_NAME
           docker tag $IMAGE:latest $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest
           docker push $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest
+      
+      # 9. Deploy to Azure Container App
+      - name: Deploy to Azure Container Apps
+        if: ${{ env.AZURE_ENABLED == 'true' }}
+        run: |
+          az containerapp update \
+            --name go-cloud-demo \
+            --resource-group Stuff \
+            --image ${{ secrets.AZURE_REGISTRY_NAME }}.azurecr.io/go-cloud-demo:latest \
+            --environment go-cloud-demo-env \
+     
 
-      # 9. Mirror Image to AWS ECR (optional)
+
+      # 10. Mirror Image to AWS ECR (optional)
       - name: Mirror to AWS ECR
         if: ${{ env.AWS_ENABLED == 'true' }}
         env:
