@@ -80,6 +80,12 @@ jobs:
 
           echo "Deploying container to Azure Container App..."
 
+          # Ensure the environment exists
+          echo "Checking environment..."
+          if ! az containerapp env show --name go-cloud-demo-env --resource-group Stuff > /dev/null 2>&1; then
+            echo "Environment does not exist — please create it manually once."
+          fi
+
           # Check if the Container App exists
           if az containerapp show --name go-cloud-demo --resource-group Stuff > /dev/null 2>&1; then
             echo "Updating existing container app..."
@@ -87,6 +93,7 @@ jobs:
               --name go-cloud-demo \
               --resource-group Stuff \
               --image $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest \
+              --env-vars "CLOUD_PROVIDER=AZURE"
           else
             echo "Creating new container app..."
             az containerapp create \
@@ -97,6 +104,7 @@ jobs:
               --target-port 8080 \
               --ingress external \
               --registry-server $AZURE_REGISTRY_NAME.azurecr.io \
+              --env-vars "CLOUD_PROVIDER=AZURE"
           fi
 
       # 10. Mirror Image to AWS ECR (optional)
