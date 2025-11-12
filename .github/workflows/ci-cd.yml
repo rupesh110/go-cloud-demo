@@ -50,6 +50,7 @@ jobs:
             --image $IMAGE:$GITHUB_SHA \
             --region ${{ env.REGION }} \
             --platform managed \
+            --project ${{ env.PROJECT_ID }} \
             --allow-unauthenticated \
             --set-env-vars "CLOUD_PROVIDER=GCP"
 
