@@ -62,10 +62,12 @@ jobs:
         env:
           AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
           AZURE_REGISTRY_NAME: ${{ secrets.AZURE_REGISTRY_NAME }}
+          AZURE_CONTAINERAPP_NAME: go-cloud-demo
+          AZURE_RESOURCE_GROUP: Stuff
         run: |
           echo "Mirroring and deploying to Azure..."
 
-          # Login using GitHub secret credentials
+          # Login using Service Principal
           az login --service-principal \
             -u $(echo "$AZURE_CREDENTIALS" | jq -r .clientId) \
             -p $(echo "$AZURE_CREDENTIALS" | jq -r .clientSecret) \
@@ -73,17 +75,18 @@ jobs:
 
           # Push to Azure ACR
           az acr login --name $AZURE_REGISTRY_NAME
-          docker tag $IMAGE:latest $AZURE_REGISTRY_NAME.azurecr.io/test-backend:latest
-          docker push $AZURE_REGISTRY_NAME.azurecr.io/test-backend:latest
+          docker tag $IMAGE:latest $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest
+          docker push $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest
 
-          # Deploy (update existing container app)
+          # Deploy (update container app)
+          echo "Updating Azure Container App..."
           az containerapp update \
-            --name test-backend \
-            --resource-group my-apps \
-            --image $AZURE_REGISTRY_NAME.azurecr.io/test-backend:latest \
+            --name $AZURE_CONTAINERAPP_NAME \
+            --resource-group $AZURE_RESOURCE_GROUP \
+            --image $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest \
             --output table
 
-          echo "Azure deployment complete."
+          echo "Azure deployment complete.
 
 
 
