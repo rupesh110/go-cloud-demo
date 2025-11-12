@@ -87,7 +87,6 @@ jobs:
               --name go-cloud-demo \
               --resource-group Stuff \
               --image $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest \
-              --set-env-vars "CLOUD_PROVIDER=AZURE"
           else
             echo "Creating new container app..."
             az containerapp create \
@@ -98,7 +97,6 @@ jobs:
               --target-port 8080 \
               --ingress external \
               --registry-server $AZURE_REGISTRY_NAME.azurecr.io \
-              --set-env-vars "CLOUD_PROVIDER=AZURE"
           fi
 
       # 10. Mirror Image to AWS ECR (optional)
