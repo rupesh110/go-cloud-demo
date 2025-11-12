@@ -6,10 +6,10 @@ on:
 
 env:
   APP_NAME: go-cloud-demo
-  GCP_ENABLED: secrets.GCP_ENABLED 
-  AZURE_ENABLED: secrets.AZURE_ENABLED
-  AWS_ENABLED: secrets.AWS_ENABLED 
-  CLOUD_PROVIDER: secrets.CLOUD_PROVIDER
+  GCP_ENABLED: ${{ secrets.GCP_ENABLED }}
+  AZURE_ENABLED: ${{ secrets.AZURE_ENABLED }}
+  AWS_ENABLED: ${{ secrets.AWS_ENABLED }}
+  CLOUD_PROVIDER: ${{ secrets.CLOUD_PROVIDER }}
 
 jobs:
   build-and-deploy:
@@ -30,7 +30,11 @@ jobs:
 
       # 4. Build Docker image (neutral tag)
       - name: Build Docker Image
-        run: docker build CLOUD_PROVIDER=${{ env.CLOUD_PROVIDER }}-t $APP_NAME:latest .
+        run: |
+          echo "Building Docker image for provider: $CLOUD_PROVIDER"
+          docker build \
+            --build-arg CLOUD_PROVIDER=${{ env.CLOUD_PROVIDER }} \
+            -t $APP_NAME:latest .
 
       ####################################################################
       # 🔵 DEPLOY TO GCP
@@ -93,6 +97,7 @@ jobs:
             --name $AZURE_CONTAINERAPP_NAME \
             --resource-group $AZURE_RESOURCE_GROUP \
             --image $AZURE_IMAGE:latest \
+            --set-env-vars CLOUD_PROVIDER=azure \
             --output table
 
           echo "✅ Azure deployment complete."
