@@ -8,6 +8,9 @@ env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   REGION: ${{ secrets.GCP_REGION }}
   IMAGE: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/demo-repo/go-cloud-demo
+  AZURE_ENABLED: ${{ secrets.AZURE_ENABLED }}
+  AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+  AZURE_REGISTRY_NAME: ${{ secrets.AZURE_REGISTRY_NAME }}
 
 jobs:
   build:
@@ -56,28 +59,31 @@ jobs:
       # 8. Mirror Image to Azure ACR (optional)
       - name: Mirror to Azure ACR
         if: ${{ env.AZURE_ENABLED == 'true' }}
-        env:
-          AZURE_ENABLED: ${{ secrets.AZURE_ENABLED }}
-          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
-          AZURE_REGISTRY_NAME: ${{ secrets.AZURE_REGISTRY_NAME }}
         run: |
           echo "Azure mirroring enabled: $AZURE_ENABLED"
-          az login --service-principal -u $(echo $AZURE_CREDENTIALS | jq -r .clientId) \
-                   -p $(echo $AZURE_CREDENTIALS | jq -r .clientSecret) \
-                   --tenant $(echo $AZURE_CREDENTIALS | jq -r .tenantId)
+          az login --service-principal \
+            -u $(echo $AZURE_CREDENTIALS | jq -r .clientId) \
+            -p $(echo $AZURE_CREDENTIALS | jq -r .clientSecret) \
+            --tenant $(echo $AZURE_CREDENTIALS | jq -r .tenantId)
           az acr login --name $AZURE_REGISTRY_NAME
           docker tag $IMAGE:latest $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest
           docker push $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest
-      
+
       # 9. Deploy to Azure Container App
       - name: Deploy to Azure Container Apps
         if: ${{ env.AZURE_ENABLED == 'true' }}
         run: |
+          az login --service-principal \
+            -u $(echo $AZURE_CREDENTIALS | jq -r .clientId) \
+            -p $(echo $AZURE_CREDENTIALS | jq -r .clientSecret) \
+            --tenant $(echo $AZURE_CREDENTIALS | jq -r .tenantId)
+
           az containerapp update \
             --name go-cloud-demo \
             --resource-group Stuff \
-            --image ${{ secrets.AZURE_REGISTRY_NAME }}.azurecr.io/go-cloud-demo:latest \
+            --image $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest \
             --environment go-cloud-demo-env \
+            --set-env-vars "CLOUD_PROVIDER=AZURE"
 
 
 
