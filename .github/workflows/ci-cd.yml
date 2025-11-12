@@ -67,40 +67,46 @@ jobs:
       ####################################################################
       # 🟣 DEPLOY TO AZURE
       ####################################################################
-      - name: Deploy to Azure
-        if: ${{ env.AZURE_ENABLED == 'true' }}
-        env:
-          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
-          AZURE_REGISTRY_NAME: ${{ secrets.AZURE_REGISTRY_NAME }}
-          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
-          AZURE_CONTAINERAPP_NAME: ${{ secrets.AZURE_CONTAINERAPP_NAME }}
-        run: |
-          echo "Logging in to Azure..."
-          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-          echo "${AZURE_CREDENTIALS}" > azure_credentials.json
-          CLIENT_ID=$(jq -r .clientId azure_credentials.json)
-          CLIENT_SECRET=$(jq -r .clientSecret azure_credentials.json)
-          TENANT_ID=$(jq -r .tenantId azure_credentials.json)
-          SUBSCRIPTION_ID=$(jq -r .subscriptionId azure_credentials.json)
+        - name: Deploy to Azure
+          if: ${{ env.AZURE_ENABLED == 'true' }}
+          env:
+            AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+            AZURE_REGISTRY_NAME: ${{ secrets.AZURE_REGISTRY_NAME }}
+            AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+            AZURE_CONTAINERAPP_NAME: ${{ secrets.AZURE_CONTAINERAPP_NAME }}
+          run: |
+            echo "Installing Azure CLI..."
+            curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
 
-          az login --service-principal -u $CLIENT_ID -p $CLIENT_SECRET --tenant $TENANT_ID
-          az account set --subscription $SUBSCRIPTION_ID
+            echo "${AZURE_CREDENTIALS}" > azure_credentials.json
+            CLIENT_ID=$(jq -r .clientId azure_credentials.json)
+            CLIENT_SECRET=$(jq -r .clientSecret azure_credentials.json)
+            TENANT_ID=$(jq -r .tenantId azure_credentials.json)
+            SUBSCRIPTION_ID=$(jq -r .subscriptionId azure_credentials.json)
 
-          echo "Pushing image to Azure ACR..."
-          AZURE_IMAGE="$AZURE_REGISTRY_NAME.azurecr.io/$APP_NAME"
-          az acr login --name $AZURE_REGISTRY_NAME
-          docker tag $APP_NAME:latest $AZURE_IMAGE:latest
-          docker push $AZURE_IMAGE:latest
+            echo "Logging in..."
+            az login --service-principal \
+              --username $CLIENT_ID \
+              --password $CLIENT_SECRET \
+              --tenant $TENANT_ID
 
-          echo "Updating Azure Container App..."
-          az containerapp update \
-            --name $AZURE_CONTAINERAPP_NAME \
-            --resource-group $AZURE_RESOURCE_GROUP \
-            --image $AZURE_IMAGE:latest \
-            --set-env-vars CLOUD_PROVIDER=azure \
-            --output table
+            az account set --subscription $SUBSCRIPTION_ID
 
-          echo "✅ Azure deployment complete."
+            echo "Pushing image to Azure ACR..."
+            AZURE_IMAGE="$AZURE_REGISTRY_NAME.azurecr.io/$APP_NAME"
+            az acr login --name $AZURE_REGISTRY_NAME
+
+            docker tag $APP_NAME:latest $AZURE_IMAGE:latest
+            docker push $AZURE_IMAGE:latest
+
+            echo "Updating Container App..."
+            az containerapp update \
+              --name $AZURE_CONTAINERAPP_NAME \
+              --resource-group $AZURE_RESOURCE_GROUP \
+              --image $AZURE_IMAGE:latest \
+              --output table
+
+            echo "✔ Azure deployment complete"
 
       ####################################################################
       # 🟢 OPTIONAL: MIRROR TO AWS ECR
