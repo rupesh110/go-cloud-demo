@@ -56,59 +56,41 @@ jobs:
             --project ${{ env.PROJECT_ID }} \
             --allow-unauthenticated \
 
-      # 8. Mirror Image to Azure ACR
-      - name: Mirror to Azure ACR
+      # 8. Mirror & Deploy to Azure (one step)
+      - name: Mirror & Deploy to Azure
         if: ${{ env.AZURE_ENABLED == 'true' }}
         env:
-          AZURE_ENABLED: ${{ secrets.AZURE_ENABLED }}
           AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
           AZURE_REGISTRY_NAME: ${{ secrets.AZURE_REGISTRY_NAME }}
+          AZURE_CONTAINERAPP_NAME: go-cloud-demo
+          AZURE_RESOURCE_GROUP: Stuff
         run: |
-          echo "Azure mirroring enabled: $AZURE_ENABLED"
+          echo "🔁 Starting Azure mirror & deploy..."
 
-          # Login to Azure
+          # Login to Azure using Service Principal credentials
           az login --service-principal \
-            -u $(echo $AZURE_CREDENTIALS | jq -r .clientId) \
-            -p $(echo $AZURE_CREDENTIALS | jq -r .clientSecret) \
-            --tenant $(echo $AZURE_CREDENTIALS | jq -r .tenantId)
+            -u $(echo '${{ env.AZURE_CREDENTIALS }}' | jq -r .clientId) \
+            -p $(echo '${{ env.AZURE_CREDENTIALS }}' | jq -r .clientSecret) \
+            --tenant $(echo '${{ env.AZURE_CREDENTIALS }}' | jq -r .tenantId)
 
-          # Login to ACR
-          echo "Logging into Azure Container Registry..."
+          # Login to Azure Container Registry
+          echo "Logging into ACR..."
           az acr login --name $AZURE_REGISTRY_NAME
 
-          # Tag and push the Docker image to ACR
-          echo "Tagging and pushing Docker image to Azure Container Registry..."
+          # Tag and push the Docker image
+          echo "Tagging and pushing image to $AZURE_REGISTRY_NAME.azurecr.io..."
           docker tag $IMAGE:latest $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest
           docker push $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest
 
+          # Update Azure Container App with the new image
+          echo "Updating Container App..."
+          az containerapp update \
+            --name $AZURE_CONTAINERAPP_NAME \
+            --resource-group $AZURE_RESOURCE_GROUP \
+            --image $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest \
+            --output table
 
-      # 9. Deploy to Azure Container App (update only)
-      - name: Deploy to Azure Container App
-        if: ${{ env.AZURE_ENABLED == 'true' }}
-        env:
-          AZURE_ENABLED: ${{ secrets.AZURE_ENABLED }}
-          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
-          AZURE_REGISTRY_NAME: ${{ secrets.AZURE_REGISTRY_NAME }}
-        run: |
-          echo "Starting deployment to Azure Container App..."
-
-          # Login again for safety (new session context)
-          az login --service-principal \
-            -u $(echo $AZURE_CREDENTIALS | jq -r .clientId) \
-            -p $(echo $AZURE_CREDENTIALS | jq -r .clientSecret) \
-            --tenant $(echo $AZURE_CREDENTIALS | jq -r .tenantId)
-
-          # Update the existing Azure Container App only
-          if az containerapp show --name go-cloud-demo --resource-group Stuff > /dev/null 2>&1; then
-            echo "Updating existing Azure Container App..."
-            az containerapp update \
-              --name go-cloud-demo \
-              --resource-group Stuff \
-              --image $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest \
-              --env-vars "CLOUD_PROVIDER=AZURE"
-          else
-            echo "Azure Container App does not exist — skipping creation as per configuration."
-          fi
+          echo "Successfully deployed the latest image to Azure Container App."
 
 
 
