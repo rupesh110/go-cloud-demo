@@ -5,19 +5,18 @@ on:
     branches: [ master ]
 
 env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  REGION: ${{ secrets.GCP_REGION }}
-  IMAGE: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/demo-repo/go-cloud-demo
-  AZURE_ENABLED: ${{ secrets.AZURE_ENABLED }}
-  AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
-  AZURE_REGISTRY_NAME: ${{ secrets.AZURE_REGISTRY_NAME }}
+  APP_NAME: go-cloud-demo
+  GCP_ENABLED: secrets.GCP_ENABLED 
+  AZURE_ENABLED: secrets.AZURE_ENABLED
+  AWS_ENABLED: secrets.AWS_ENABLED 
+  CLOUD_PROVIDER: secrets.CLOUD_PROVIDER
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout source code
+      # 1. Checkout code
       - uses: actions/checkout@v4
 
       # 2. Set up Go
@@ -29,79 +28,91 @@ jobs:
       - name: Run Tests
         run: go test ./... -v
 
-      # 4. Authenticate to Google Cloud
-      - name: Authenticate to Google Cloud
-        run: |
-          echo '${{ secrets.GCP_SA_KEY }}' > key.json
-          gcloud auth activate-service-account --key-file=key.json
-          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
-
-      # 5. Build Docker Image
+      # 4. Build Docker image (neutral tag)
       - name: Build Docker Image
-        run: docker build -t $IMAGE:$GITHUB_SHA -t $IMAGE:latest .
+        run: docker build CLOUD_PROVIDER=${{ env.CLOUD_PROVIDER }}-t $APP_NAME:latest .
 
-      # 6. Push Image to Google Artifact Registry
-      - name: Push Docker Image
+      ####################################################################
+      # 🔵 DEPLOY TO GCP
+      ####################################################################
+      - name: Deploy to Google Cloud
+        if: ${{ env.GCP_ENABLED == 'true' }}
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          REGION: ${{ secrets.GCP_REGION }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
         run: |
-          docker push $IMAGE:$GITHUB_SHA
-          docker push $IMAGE:latest
+          echo "$GCP_SA_KEY" > key.json
+          gcloud auth activate-service-account --key-file=key.json
+          gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
 
-      # 7. Deploy to Google Cloud Run
-      - name: Deploy to Cloud Run
-        run: |
-          gcloud run deploy go-cloud-demo \
-            --image $IMAGE:$GITHUB_SHA \
-            --region ${{ env.REGION }} \
+          GCP_IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/demo-repo/$APP_NAME"
+
+          echo "Pushing image to Google Artifact Registry..."
+          docker tag $APP_NAME:latest $GCP_IMAGE:latest
+          docker push $GCP_IMAGE:latest
+
+          echo "Deploying to Cloud Run..."
+          gcloud run deploy $APP_NAME \
+            --image $GCP_IMAGE:latest \
+            --region $REGION \
             --platform managed \
-            --project ${{ env.PROJECT_ID }} \
-            --allow-unauthenticated \
+            --project $PROJECT_ID \
+            --allow-unauthenticated
 
-      # 8. Mirror & Deploy to Azure
-      - name: Mirror & Deploy to Azure
+      ####################################################################
+      # 🟣 DEPLOY TO AZURE
+      ####################################################################
+      - name: Deploy to Azure
         if: ${{ env.AZURE_ENABLED == 'true' }}
         env:
           AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
           AZURE_REGISTRY_NAME: ${{ secrets.AZURE_REGISTRY_NAME }}
-          AZURE_CONTAINERAPP_NAME: go-cloud-demo
-          AZURE_RESOURCE_GROUP: Stuff
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          AZURE_CONTAINERAPP_NAME: ${{ secrets.AZURE_CONTAINERAPP_NAME }}
         run: |
-          echo "Mirroring and deploying to Azure..."
+          echo "Logging in to Azure..."
+          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+          echo "${AZURE_CREDENTIALS}" > azure_credentials.json
+          CLIENT_ID=$(jq -r .clientId azure_credentials.json)
+          CLIENT_SECRET=$(jq -r .clientSecret azure_credentials.json)
+          TENANT_ID=$(jq -r .tenantId azure_credentials.json)
+          SUBSCRIPTION_ID=$(jq -r .subscriptionId azure_credentials.json)
 
-          # Login using Service Principal
-          az login --service-principal \
-            -u $(echo "$AZURE_CREDENTIALS" | jq -r .clientId) \
-            -p $(echo "$AZURE_CREDENTIALS" | jq -r .clientSecret) \
-            --tenant $(echo "$AZURE_CREDENTIALS" | jq -r .tenantId)
+          az login --service-principal -u $CLIENT_ID -p $CLIENT_SECRET --tenant $TENANT_ID
+          az account set --subscription $SUBSCRIPTION_ID
 
-          # Push to Azure ACR
+          echo "Pushing image to Azure ACR..."
+          AZURE_IMAGE="$AZURE_REGISTRY_NAME.azurecr.io/$APP_NAME"
           az acr login --name $AZURE_REGISTRY_NAME
-          docker tag $IMAGE:latest $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest
-          docker push $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest
+          docker tag $APP_NAME:latest $AZURE_IMAGE:latest
+          docker push $AZURE_IMAGE:latest
 
-          # Deploy (update container app)
           echo "Updating Azure Container App..."
           az containerapp update \
             --name $AZURE_CONTAINERAPP_NAME \
             --resource-group $AZURE_RESOURCE_GROUP \
-            --image $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest \
+            --image $AZURE_IMAGE:latest \
             --output table
 
-          echo "Azure deployment complete.
+          echo "✅ Azure deployment complete."
 
-
-
-      # 10. Mirror Image to AWS ECR (optional)
-      - name: Mirror to AWS ECR
+      ####################################################################
+      # 🟢 OPTIONAL: MIRROR TO AWS ECR
+      ####################################################################
+      - name: Mirror to AWS
         if: ${{ env.AWS_ENABLED == 'true' }}
         env:
-          AWS_ENABLED: ${{ secrets.AWS_ENABLED }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
         run: |
-          echo "AWS mirroring enabled: $AWS_ENABLED"
+          echo "Pushing image to AWS ECR..."
+          REGION="ap-southeast-2"
           aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
           aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
-          aws ecr get-login-password --region ap-southeast-2 | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com
-          docker tag $IMAGE:latest $AWS_ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/go-cloud-demo:latest
-          docker push $AWS_ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/go-cloud-demo:latest
+          aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
+
+          AWS_IMAGE="$AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$APP_NAME"
+          docker tag $APP_NAME:latest $AWS_IMAGE:latest
+          docker push $AWS_IMAGE:latest
