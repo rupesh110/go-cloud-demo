@@ -1,0 +1,84 @@
+name: Cloud-Agnostic CI/CD
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: ${{ secrets.GCP_REGION }}
+  IMAGE: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/demo-repo/go-cloud-demo
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout source code
+      - uses: actions/checkout@v4
+
+      # 2. Set up Go
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      # 3. Run Go tests
+      - name: Run Tests
+        run: go test ./... -v
+
+      # 4. Authenticate to Google Cloud
+      - name: Authenticate to Google Cloud
+        run: |
+          echo '${{ secrets.GCP_SA_KEY }}' > key.json
+          gcloud auth activate-service-account --key-file=key.json
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      # 5. Build Docker Image
+      - name: Build Docker Image
+        run: docker build -t $IMAGE:$GITHUB_SHA -t $IMAGE:latest .
+
+      # 6. Push Image to Google Artifact Registry
+      - name: Push Docker Image
+        run: |
+          docker push $IMAGE:$GITHUB_SHA
+          docker push $IMAGE:latest
+
+      # 7. Deploy to Google Cloud Run
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy go-cloud-demo \
+            --image $IMAGE:$GITHUB_SHA \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-env-vars "CLOUD_PROVIDER=GCP"
+
+      # 8. Mirror Image to Azure ACR (optional)
+      - name: Azure Login
+        if: ${{ secrets.AZURE_CREDENTIALS != '' }}
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Mirror to Azure ACR
+        if: ${{ secrets.AZURE_CREDENTIALS != '' }}
+        run: |
+          az acr login --name ${{ secrets.AZURE_REGISTRY_NAME }}
+          docker tag $IMAGE:latest ${{ secrets.AZURE_REGISTRY_NAME }}.azurecr.io/go-cloud-demo:latest
+          docker push ${{ secrets.AZURE_REGISTRY_NAME }}.azurecr.io/go-cloud-demo:latest
+
+      # 9. Mirror Image to AWS ECR (optional)
+      - name: Configure AWS Credentials
+        if: ${{ secrets.AWS_ACCESS_KEY_ID != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-southeast-2
+
+      - name: Mirror to AWS ECR
+        if: ${{ secrets.AWS_ACCESS_KEY_ID != '' }}
+        run: |
+          aws ecr get-login-password --region ap-southeast-2 | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-southeast-2.amazonaws.com
+          docker tag $IMAGE:latest ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-southeast-2.amazonaws.com/go-cloud-demo:latest
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-southeast-2.amazonaws.com/go-cloud-demo:latest
