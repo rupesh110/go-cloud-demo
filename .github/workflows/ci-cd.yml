@@ -2,7 +2,7 @@ name: Cloud-Agnostic CI/CD
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
