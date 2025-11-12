@@ -56,41 +56,34 @@ jobs:
             --project ${{ env.PROJECT_ID }} \
             --allow-unauthenticated \
 
-      # 8. Mirror & Deploy to Azure (one step)
+      # 8. Mirror & Deploy to Azure
       - name: Mirror & Deploy to Azure
         if: ${{ env.AZURE_ENABLED == 'true' }}
         env:
           AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
           AZURE_REGISTRY_NAME: ${{ secrets.AZURE_REGISTRY_NAME }}
-          AZURE_CONTAINERAPP_NAME: go-cloud-demo
-          AZURE_RESOURCE_GROUP: Stuff
         run: |
-          echo "🔁 Starting Azure mirror & deploy..."
+          echo "Mirroring and deploying to Azure..."
 
-          # Login to Azure using Service Principal credentials
+          # Login using GitHub secret credentials
           az login --service-principal \
-            -u $(echo '${{ env.AZURE_CREDENTIALS }}' | jq -r .clientId) \
-            -p $(echo '${{ env.AZURE_CREDENTIALS }}' | jq -r .clientSecret) \
-            --tenant $(echo '${{ env.AZURE_CREDENTIALS }}' | jq -r .tenantId)
+            -u $(echo "$AZURE_CREDENTIALS" | jq -r .clientId) \
+            -p $(echo "$AZURE_CREDENTIALS" | jq -r .clientSecret) \
+            --tenant $(echo "$AZURE_CREDENTIALS" | jq -r .tenantId)
 
-          # Login to Azure Container Registry
-          echo "Logging into ACR..."
+          # Push to Azure ACR
           az acr login --name $AZURE_REGISTRY_NAME
+          docker tag $IMAGE:latest $AZURE_REGISTRY_NAME.azurecr.io/test-backend:latest
+          docker push $AZURE_REGISTRY_NAME.azurecr.io/test-backend:latest
 
-          # Tag and push the Docker image
-          echo "Tagging and pushing image to $AZURE_REGISTRY_NAME.azurecr.io..."
-          docker tag $IMAGE:latest $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest
-          docker push $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest
-
-          # Update Azure Container App with the new image
-          echo "Updating Container App..."
+          # Deploy (update existing container app)
           az containerapp update \
-            --name $AZURE_CONTAINERAPP_NAME \
-            --resource-group $AZURE_RESOURCE_GROUP \
-            --image $AZURE_REGISTRY_NAME.azurecr.io/go-cloud-demo:latest \
+            --name test-backend \
+            --resource-group my-apps \
+            --image $AZURE_REGISTRY_NAME.azurecr.io/test-backend:latest \
             --output table
 
-          echo "Successfully deployed the latest image to Azure Container App."
+          echo "Azure deployment complete."
 
 
 
