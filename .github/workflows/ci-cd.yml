@@ -37,7 +37,7 @@ jobs:
             -t $APP_NAME:latest .
 
       ####################################################################
-      # 🔵 DEPLOY TO GCP
+      # DEPLOY TO GCP
       ####################################################################
       - name: Deploy to Google Cloud
         if: ${{ env.GCP_ENABLED == 'true' }}
@@ -64,8 +64,9 @@ jobs:
             --project $PROJECT_ID \
             --allow-unauthenticated
 
-  
-      # 🟣 Minimal Azure Deploy
+      ####################################################################
+      # Minimal Azure Deploy
+      ####################################################################
       - name: Deploy to Azure
         if: ${{ env.AZURE_ENABLED == 'true' }}
         env:
@@ -101,23 +102,52 @@ jobs:
             --image $AZURE_IMAGE \
             --output table
 
-
       ####################################################################
-      # 🟢 OPTIONAL: MIRROR TO AWS ECR
+      #AWS Deploy (from AWS_CREDENTIALS.json)
       ####################################################################
-      - name: Mirror to AWS
+      - name: Deploy to AWS
         if: ${{ env.AWS_ENABLED == 'true' }}
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_JSON: ${{ secrets.AWS_CREDENTIALS }}
         run: |
-          echo "Pushing image to AWS ECR..."
-          REGION="ap-southeast-2"
+          echo "Loading AWS credentials JSON..."
+          echo "$AWS_JSON" > aws.json
+
+          AWS_ACCESS_KEY_ID=$(jq -r .accessKeyId aws.json)
+          AWS_SECRET_ACCESS_KEY=$(jq -r .secretAccessKey aws.json)
+          AWS_ACCOUNT_ID=$(jq -r .accountId aws.json)
+          REGION=$(jq -r .region aws.json)
+          SERVICE_NAME="go-cloud-demo"
+
+          echo "Configuring AWS CLI..."
           aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
           aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
-          aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
+          aws configure set default.region "$REGION"
 
-          AWS_IMAGE="$AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$APP_NAME"
-          docker tag $APP_NAME:latest $AWS_IMAGE:latest
-          docker push $AWS_IMAGE:latest
+          ECR_IMAGE="$AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$APP_NAME:latest"
+
+          echo "Logging in to ECR..."
+          aws ecr get-login-password --region $REGION \
+            | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
+
+          echo "Tagging and pushing image to ECR..."
+          docker tag $APP_NAME:latest $ECR_IMAGE
+          docker push $ECR_IMAGE
+
+          echo "Checking if App Runner service exists..."
+          SERVICE_ARN=$(aws apprunner list-services --query "ServiceSummaryList[?ServiceName=='$SERVICE_NAME'].ServiceArn" --output text)
+
+          if [ "$SERVICE_ARN" = "None" ] || [ -z "$SERVICE_ARN" ]; then
+            echo "Creating App Runner service..."
+            aws apprunner create-service \
+              --service-name "$SERVICE_NAME" \
+              --source-configuration ImageRepository="{ImageIdentifier=\"$ECR_IMAGE\",ImageRepositoryType=\"ECR\"}" \
+              --auto-deployments-enabled
+          else
+            echo "Updating App Runner service..."
+            aws apprunner update-service \
+              --service-arn "$SERVICE_ARN" \
+              --source-configuration ImageRepository="{ImageIdentifier=\"$ECR_IMAGE\",ImageRepositoryType=\"ECR\"}"
+          fi
+
+          echo "✔ AWS Deployment Complete"
