@@ -64,20 +64,19 @@ jobs:
             --project $PROJECT_ID \
             --allow-unauthenticated
 
-      ####################################################################
-      # 🟣 DEPLOY TO AZURE
-      ####################################################################
+  
       # 🟣 Minimal Azure Deploy
       - name: Deploy to Azure Container Apps
         if: ${{ env.AZURE_ENABLED == 'true' }}
         uses: azure/container-apps-deploy-action@v1
         with:
           azureCredentials: ${{ secrets.AZURE_CREDENTIALS }}
-          containerAppName: go-cloud-demo
           resourceGroup: my-demo-rg
-          containerAppEnvironment: demo-env
-          imageToBuild: mydemoacrgo.azurecr.io/go-cloud-demo:latest
+          containerAppName: go-cloud-demo
           dockerfilePath: ./Dockerfile
+          registryUrl: mydemoacrgo.azurecr.io
+          imageToDeploy: mydemoacrgo.azurecr.io/go-cloud-demo:latest
+
 
       ####################################################################
       # 🟢 OPTIONAL: MIRROR TO AWS ECR
