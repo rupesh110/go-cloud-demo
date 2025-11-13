@@ -66,16 +66,40 @@ jobs:
 
   
       # 🟣 Minimal Azure Deploy
-      - name: Deploy to Azure Container Apps
+      - name: Deploy to Azure
         if: ${{ env.AZURE_ENABLED == 'true' }}
-        uses: azure/container-apps-deploy-action@v1
-        with:
-          azureCredentials: ${{ secrets.AZURE_CREDENTIALS }}
-          resourceGroup: my-demo-rg
-          containerAppName: go-cloud-demo
-          dockerfilePath: ./Dockerfile
-          registryUrl: mydemoacrgo.azurecr.io
-          imageToDeploy: mydemoacrgo.azurecr.io/go-cloud-demo:latest
+        env:
+          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+        run: |
+          echo "Logging into Azure..."
+          echo "${AZURE_CREDENTIALS}" > azure.json
+          CLIENT_ID=$(jq -r .clientId azure.json)
+          CLIENT_SECRET=$(jq -r .clientSecret azure.json)
+          TENANT_ID=$(jq -r .tenantId azure.json)
+          SUBSCRIPTION_ID=$(jq -r .subscriptionId azure.json)
+
+          az login --service-principal \
+            --username $CLIENT_ID \
+            --password $CLIENT_SECRET \
+            --tenant $TENANT_ID
+          az account set --subscription $SUBSCRIPTION_ID
+
+          ACR="mydemoacrgo.azurecr.io"
+          AZURE_IMAGE="$ACR/$APP_NAME:latest"
+
+          echo "Logging in to ACR..."
+          az acr login --name mydemoacrgo
+
+          echo "Pushing image to ACR..."
+          docker tag $APP_NAME:latest $AZURE_IMAGE
+          docker push $AZURE_IMAGE
+
+          echo "Deploying to Azure Container Apps..."
+          az containerapp update \
+            --name go-cloud-demo \
+            --resource-group my-demo-rg \
+            --image $AZURE_IMAGE \
+            --output table
 
 
       ####################################################################
